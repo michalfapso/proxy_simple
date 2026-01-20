@@ -1,37 +1,37 @@
+// Standard Node.js runtime allows us to pin the region to Europe (Frankfurt) in vercel.json
+// This is important to avoid geo-blocking from the Slovak GIS servers.
 export const config = {
     runtime: 'nodejs',
 };
 
-export default async function handler(req) {
-    const url = new URL(req.url);
-    const targetUrl = url.searchParams.get('url');
-
+export default async function handler(req, res) {
     // 1. Authorization
     // Note: PROXY_AUTH_KEY should be set in Vercel Environment Variables
     const secretKey = process.env.PROXY_AUTH_KEY;
-    const authHeader = req.headers.get('x-proxy-auth');
+    const authHeader = req.headers['x-proxy-auth'];
 
     if (!secretKey) {
-        return new Response('Server configuration error: PROXY_AUTH_KEY is not set.', { status: 500 });
+        return res.status(500).send('Server configuration error: PROXY_AUTH_KEY is not set.');
     }
 
     if (authHeader !== secretKey) {
-        return new Response('Forbidden: Invalid or missing X-Proxy-Auth header.', { status: 403 });
+        return res.status(403).send('Forbidden: Invalid or missing X-Proxy-Auth header.');
     }
 
     // 2. URL Validation
+    const targetUrl = req.query.url;
     if (!targetUrl) {
-        return new Response('Bad Request: Missing url parameter.', { status: 400 });
+        return res.status(400).send('Bad Request: Missing url parameter.');
     }
 
     const allowedDomains = ['inspirews.skgeodesy.sk'];
     try {
         const parsedTarget = new URL(targetUrl);
         if (!allowedDomains.includes(parsedTarget.hostname)) {
-            return new Response(`Forbidden: Domain '${parsedTarget.hostname}' is not allowed.`, { status: 403 });
+            return res.status(403).send(`Forbidden: Domain '${parsedTarget.hostname}' is not allowed.`);
         }
     } catch (e) {
-        return new Response('Bad Request: Invalid target URL.', { status: 400 });
+        return res.status(400).send('Bad Request: Invalid target URL.');
     }
 
     // 3. Perform the request and stream the response
@@ -41,11 +41,9 @@ export default async function handler(req) {
             headers: {
                 'User-Agent': 'VLK-Bot-Analysis-Proxy',
             },
-            // You can forward more headers here if needed
         });
 
         // 4. Forward important headers from the target server
-        const responseHeaders = new Headers();
         const headersToForward = [
             'content-type',
             'content-length',
@@ -55,19 +53,29 @@ export default async function handler(req) {
             'etag'
         ];
 
+        res.status(response.status);
         for (const header of headersToForward) {
             const value = response.headers.get(header);
             if (value) {
-                responseHeaders.set(header, value);
+                res.setHeader(header, value);
             }
         }
 
-        // Return the response stream back to the client
-        return new Response(response.body, {
-            status: response.status,
-            headers: responseHeaders,
-        });
+        // 5. Stream the response body - Node-friendly way
+        if (response.body) {
+            const reader = response.body.getReader();
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                res.write(value);
+            }
+        }
+        res.end();
+
     } catch (error) {
-        return new Response(`Bad Gateway: ${error.message}`, { status: 502 });
+        console.error('Proxy Error:', error);
+        if (!res.headersSent) {
+            res.status(502).send(`Bad Gateway: ${error.message}`);
+        }
     }
 }
