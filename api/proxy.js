@@ -19,7 +19,10 @@ export default async function handler(req, res) {
     }
 
     // 2. URL Validation
-    const targetUrl = req.query.url;
+    // Use modern WHATWG URL API to avoid DEP0169 (url.parse deprecation)
+    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const targetUrl = url.searchParams.get('url');
+
     if (!targetUrl) {
         return res.status(400).send('Bad Request: Missing url parameter.');
     }
