@@ -1,0 +1,11 @@
+{
+    "name": "vlk-proxy",
+    "version": "1.0.0",
+    "description": "A simple streaming proxy for OGC services, deployed on Vercel.",
+    "scripts": {
+        "dev": "vercel dev"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC"
+}
